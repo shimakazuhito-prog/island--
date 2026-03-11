@@ -4,15 +4,17 @@
 ・PDFアップロード → テキスト抽出 → LLMで3項目要約 → 保存
 ・重複チェック（利用者名・対象月）
 ・報告書一覧・取得・更新・削除
+・事業所単位ログイン（ID/PASS）
 """
 import socket
 import uuid
 from pathlib import Path
 from typing import Optional
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
+from starlette.middleware.sessions import SessionMiddleware
 
 from config import settings
 from pdf_processor import extract_text_from_pdf
@@ -20,8 +22,18 @@ from report_generator import summarize_with_llm
 from storage import list_reports, get_report, save_report, delete_report, find_duplicate
 from extract_info import extract_client_name_and_month, split_bulk_pdf_text
 
+# 事業所ログイン用（ID / パスワード）
+LOGIN_ID = "piece"
+LOGIN_PASS = "isLand0601"
+
 app = FastAPI(title="訪問看護 月次報告書 自動作成")
 
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=settings.session_secret,
+    session_cookie="report_session",
+    max_age=60 * 60 * 24,  # 24時間（その日の利用は1回ログインで足りる。翌日は再ログイン）
+)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -29,6 +41,13 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+def require_login(request: Request):
+    """ログイン済みでなければ 401。認証不要の API では使わない。"""
+    if request.session.get("logged_in"):
+        return True
+    raise HTTPException(status_code=401, detail="ログインしてください")
 
 # アップロード一時保存
 UPLOAD_DIR = Path(__file__).resolve().parent / "uploads"
@@ -53,8 +72,32 @@ def _get_lan_ip() -> Optional[str]:
     return None
 
 
+@app.post("/api/login")
+async def login(request: Request, id: str = Form(...), password: str = Form(...)):
+    """事業所ID・パスワードでログイン。セッションに記録。"""
+    if (id or "").strip() == LOGIN_ID and (password or "") == LOGIN_PASS:
+        request.session["logged_in"] = True
+        return {"ok": True, "message": "ログインしました"}
+    raise HTTPException(status_code=401, detail="IDまたはパスワードが違います")
+
+
+@app.post("/api/logout")
+async def logout(request: Request):
+    """ログアウト（セッション削除）。"""
+    request.session.clear()
+    return {"ok": True}
+
+
+@app.get("/api/auth/check")
+async def auth_check(request: Request):
+    """ログイン済みかどうか。未ログインなら 401。"""
+    if request.session.get("logged_in"):
+        return {"logged_in": True}
+    raise HTTPException(status_code=401, detail="未ログイン")
+
+
 @app.get("/api/server-info")
-async def server_info():
+async def server_info(_: bool = Depends(require_login)):
     """他端末で開くとき用の共有URLを返す。同じWi-Fi用（LANのIP）と、外から用（PUBLIC_URL）を返す。"""
     lan_ip = _get_lan_ip()
     share_url = f"http://{lan_ip}:{SERVER_PORT}" if lan_ip else None
@@ -63,7 +106,7 @@ async def server_info():
 
 
 @app.post("/api/extract-info")
-async def extract_info(file: UploadFile = File(...)):
+async def extract_info(file: UploadFile = File(...), _: bool = Depends(require_login)):
     """PDFから利用者氏名・対象月を読み取り、フォーム用に返す。"""
     if not file.filename or not file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="PDFファイルを選択してください")
@@ -80,7 +123,7 @@ async def extract_info(file: UploadFile = File(...)):
 
 
 @app.post("/api/split-bulk-pdf")
-async def split_bulk_pdf(file: UploadFile = File(...)):
+async def split_bulk_pdf(file: UploadFile = File(...), _: bool = Depends(require_login)):
     """一括印刷PDFを人ごとに分割し、各人の氏名・対象月・テキストを返す。"""
     if not file.filename or not file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="PDFファイルを選択してください")
@@ -107,6 +150,7 @@ async def generate_report(
     target_month: str = Form(..., description="対象月（例: 2025-03）"),
     other_notes: str = Form("", description="その他（必ず入れたいこと）"),
     overwrite: str = Form("", description="上書きする場合は 1"),
+    _: bool = Depends(require_login),
 ):
     """PDFを1つアップロードし、報告書を生成して保存。既に同利用者・同月の報告があれば重複として返す。overwrite=1 の場合は上書き作成。"""
     if not file.filename or not file.filename.lower().endswith(".pdf"):
@@ -161,6 +205,7 @@ async def generate_report_from_text(
     text: str = Form(..., description="記録テキスト（一括PDFの1人分など）"),
     other_notes: str = Form(""),
     overwrite: str = Form(""),
+    _: bool = Depends(require_login),
 ):
     """テキストから報告書を生成（一括印刷PDFを人ごとに分けたとき用）。PDFは使わない。"""
     dup = find_duplicate(client_name, target_month)
@@ -196,6 +241,7 @@ async def generate_report_multi(
     target_month: str = Form(...),
     other_notes: str = Form(""),
     overwrite: str = Form(""),
+    _: bool = Depends(require_login),
 ):
     """複数PDFをアップロードし、結合して1つの報告書を生成。overwrite=1 で上書き作成。"""
     if not files:
@@ -245,13 +291,13 @@ async def generate_report_multi(
 
 
 @app.get("/api/reports")
-def api_list_reports():
+def api_list_reports(_: bool = Depends(require_login)):
     """報告書一覧（店舗内共有：全件）"""
     return {"reports": list_reports()}
 
 
 @app.get("/api/reports/check-duplicate")
-def api_check_duplicate(client_name: str, target_month: str):
+def api_check_duplicate(client_name: str, target_month: str, _: bool = Depends(require_login)):
     """作成前に重複のみ確認したい場合"""
     dup = find_duplicate(client_name, target_month)
     if dup:
@@ -260,7 +306,7 @@ def api_check_duplicate(client_name: str, target_month: str):
 
 
 @app.get("/api/reports/{report_id}")
-def api_get_report(report_id: str):
+def api_get_report(report_id: str, _: bool = Depends(require_login)):
     """1件取得"""
     r = get_report(report_id)
     if not r:
@@ -277,6 +323,7 @@ async def api_update_report(
     看護リハビリテーションの内容: str = Form(None),
     家庭での介護の状況: str = Form(None),
     その他: str = Form(None),
+    _: bool = Depends(require_login),
 ):
     """内容を修正して保存"""
     existing = get_report(report_id)
@@ -301,7 +348,7 @@ async def api_update_report(
 
 
 @app.delete("/api/reports/{report_id}")
-def api_delete_report(report_id: str):
+def api_delete_report(report_id: str, _: bool = Depends(require_login)):
     """報告書を削除"""
     if not get_report(report_id):
         raise HTTPException(status_code=404, detail="報告書が見つかりません")

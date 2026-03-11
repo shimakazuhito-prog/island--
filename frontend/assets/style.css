@@ -168,4 +168,52 @@ input[type="file"] { font-size: 0.95rem; }
 .bulk-preview-list li { margin-bottom: 0.25rem; }
 .bulk-preview-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
 
+/* 画面切り替え（ログイン／本編） */
+.screen-hidden { display: none !important; }
+
+/* ログイン画面 */
+.login-section {
+  min-height: 60vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem 1rem;
+}
+.login-box {
+  width: 100%;
+  max-width: 360px;
+  background: var(--card);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 2rem 1.5rem;
+}
+.login-title {
+  font-size: 1.35rem;
+  margin: 0 0 0.25rem;
+  color: var(--text);
+  font-weight: 700;
+}
+.login-lead {
+  font-size: 0.9rem;
+  color: var(--muted);
+  margin: 0 0 1.5rem;
+}
+.login-form .form-row { margin-bottom: 1rem; }
+.login-form label { display: block; font-weight: 600; font-size: 0.9rem; margin-bottom: 0.35rem; }
+.login-form input[type="text"],
+.login-form input[type="password"] {
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid #d4d4d4;
+  border-radius: 6px;
+  font-size: 16px;
+}
+.login-error {
+  color: #b91c1c;
+  font-size: 0.9rem;
+  margin: 0 0 1rem;
+}
+.btn-block { width: 100%; margin-top: 0.5rem; }
+.logout-row { margin-top: 1rem; }
+
 .footer { margin-top: 2rem; padding-top: 1rem; border-top: 1px solid #e5e5e0; font-size: 0.9rem; color: var(--muted); }

@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     # 外から開く用URL（./run-tunnel.sh で表示された https://xxxx.loca.lt 等を .env に書くと画面上に表示）
     public_url: str = ""
 
+    # ログインセッション用秘密鍵（本番では .env で長いランダム文字列を指定推奨）
+    session_secret: str = "report-session-secret-change-in-production"
+
     class Config:
         env_file = [str(_root_env), ".env"]  # プロジェクト直下 → backend/ の順で読む
         env_file_encoding = "utf-8"

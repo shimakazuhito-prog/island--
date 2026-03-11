@@ -674,10 +674,80 @@ function init() {
   // 並び替え変更時は一覧だけ再描画（再取得しない）
   const sortEl = $("report-sort");
   if (sortEl) sortEl.addEventListener("change", () => renderReportList());
+
+  // ログアウト
+  const logoutBtn = $("logout-btn");
+  if (logoutBtn) {
+    logoutBtn.addEventListener("click", async () => {
+      await fetch(API + "/api/logout", { method: "POST", credentials: "include" });
+      window.location.reload();
+    });
+  }
+}
+
+function setupLoginForm() {
+  const form = $("login-form");
+  const errEl = $("login-error");
+  if (!form) return;
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const id = (($("login-id") && $("login-id").value) || "").trim();
+    const password = ($("login-password") && $("login-password").value) || "";
+    if (errEl) { errEl.hidden = true; errEl.textContent = ""; }
+    try {
+      const fd = new FormData();
+      fd.append("id", id);
+      fd.append("password", password);
+      const r = await fetch(API + "/api/login", { method: "POST", body: fd, credentials: "include" });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        if (errEl) { errEl.textContent = data.detail || "IDまたはパスワードが違います"; errEl.hidden = false; }
+        return;
+      }
+      const ls = $("login-section");
+      const ap = $("app-screen");
+      if (ls) { ls.hidden = true; ls.classList.add("screen-hidden"); }
+      if (ap) { ap.hidden = false; ap.classList.remove("screen-hidden"); }
+      init();
+    } catch (err) {
+      if (errEl) { errEl.textContent = "通信エラーです。"; errEl.hidden = false; }
+    }
+  });
+}
+
+function showLoginScreen() {
+  const loginSection = $("login-section");
+  const appScreen = $("app-screen");
+  if (loginSection) { loginSection.hidden = false; loginSection.classList.remove("screen-hidden"); }
+  if (appScreen) { appScreen.hidden = true; appScreen.classList.add("screen-hidden"); }
+}
+
+function showAppScreen() {
+  const loginSection = $("login-section");
+  const appScreen = $("app-screen");
+  if (loginSection) { loginSection.hidden = true; loginSection.classList.add("screen-hidden"); }
+  if (appScreen) { appScreen.hidden = false; appScreen.classList.remove("screen-hidden"); }
+}
+
+async function checkAuthAndInit() {
+  try {
+    const r = await fetch(API + "/api/auth/check", { credentials: "include" });
+    if (r.status === 401) {
+      showLoginScreen();
+      setupLoginForm();
+      return;
+    }
+    if (!r.ok) throw new Error("auth check failed");
+    showAppScreen();
+    init();
+  } catch (e) {
+    showLoginScreen();
+    setupLoginForm();
+  }
 }
 
 function safeInit() {
-  try { init(); } catch (e) { console.error("init error:", e); }
+  try { checkAuthAndInit(); } catch (e) { console.error("init error:", e); }
 }
 if (document.readyState === "loading") {
   document.addEventListener("DOMContentLoaded", safeInit);
