@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <title>isLand報告書自動生成</title>
+  <link rel="stylesheet" href="/assets/style.css" />
+</head>
+<body>
+  <header class="header">
+    <h1>isLand報告書自動生成</h1>
+  </header>
+
+  <div class="share-url-box" aria-label="他端末で開くときのURL">
+    <p class="share-url-title">他端末で開く</p>
+    <p class="share-url-row">
+      <span class="share-url-label">同じWi-Fi用：</span>
+      <code id="share-url" class="share-url-code">取得中…</code>
+      <button type="button" id="copy-url-btn" class="btn btn-secondary btn-sm">URLをコピー</button>
+    </p>
+    <p id="share-url-outside" class="share-url-outside">
+      <span class="share-url-label">外から開く（自宅・外出先）：</span>
+      <span id="share-url-outside-text" class="share-url-outside-text">サーバーPCで <code>./run-tunnel.sh</code> を実行し、表示される <code>https://xxxx.loca.lt</code> のURLをブラウザで開いてください。</span>
+      <span id="share-url-public-wrap" class="share-url-public-wrap" hidden>
+        <code id="share-url-public" class="share-url-code"></code>
+        <button type="button" id="copy-public-url-btn" class="btn btn-secondary btn-sm">URLをコピー</button>
+      </span>
+    </p>
+    <p id="copy-done-msg" class="copy-done-msg" hidden aria-live="polite"></p>
+  </div>
+
+  <main class="main">
+    <section id="upload-section" class="section upload-section">
+      <h2>① PDFをアップロード</h2>
+      <div class="upload-form">
+        <div class="form-row">
+          <label>PDFファイル（1ヶ月分・複数可） <span class="required">必須</span></label>
+          <input type="file" id="pdf_files" accept=".pdf" multiple />
+          <p class="hint">PDFを選ぶと利用者名・対象月を自動で読み取ります。複数選択すると結合して1つの報告書にまとめます。</p>
+          <p id="extract-status" class="hint status-inline" aria-live="polite"></p>
+          <p class="form-row" style="margin-top:0.5rem;">
+            <button type="button" id="split-bulk-btn" class="btn btn-secondary btn-sm">一括印刷PDFを人ごとに展開</button>
+            <span class="hint" style="margin-left:0.5rem;">一括印刷のPDFを選んでから押すと、検出した人の名前を列挙します。確認後に「一覧に追加」→「作成」してください。</span>
+          </p>
+          <div id="bulk-preview" class="bulk-preview" hidden>
+            <h4>一括PDFで検出した人（氏名・対象月を確認し、別人の取り違えがなければ「一覧に追加」→ 下の「生成」で作成）</h4>
+            <ul id="bulk-preview-list" class="bulk-preview-list"></ul>
+            <div class="bulk-preview-actions">
+              <button type="button" id="bulk-add-all-btn" class="btn btn-primary">検出した全員を一覧に追加</button>
+              <button type="button" id="bulk-preview-cancel" class="btn btn-secondary btn-sm">キャンセル</button>
+            </div>
+          </div>
+        </div>
+        <div class="form-row">
+          <label>利用者名 <span class="required">必須</span></label>
+          <input type="text" id="client_name" placeholder="PDFを選択すると自動で読み取ります" readonly class="readonly" />
+        </div>
+        <div class="form-row">
+          <label>対象月 <span class="required">必須</span></label>
+          <input type="month" id="target_month" />
+        </div>
+        <div class="form-row">
+          <label>その他（必ず入れたいことがあれば入力）</label>
+          <textarea id="other_notes" rows="3" placeholder="報告書に必ず含めたいことがあれば自由に記入してください"></textarea>
+        </div>
+        <div class="form-actions">
+          <button type="button" id="submit-btn" class="btn btn-primary">作成</button>
+          <button type="button" id="add-queue-btn" class="btn btn-secondary">一覧に追加</button>
+        </div>
+      </div>
+      <div id="upload-status" class="status" aria-live="polite"></div>
+      <div id="queue-section" class="queue-section">
+        <h3>待ちリスト（追加した分がここに溜まります）</h3>
+        <div id="queue-list" class="queue-list"></div>
+        <div id="queue-actions" class="queue-actions" hidden>
+          <button type="button" id="generate-all-btn" class="btn btn-primary">すべて生成</button>
+        </div>
+      </div>
+      <div id="duplicate-alert" class="alert alert-warning" role="alert" hidden>
+        <strong>すでに作られています</strong>
+        <p id="duplicate-message"></p>
+        <p class="duplicate-actions">
+          <a id="duplicate-link" href="#" class="btn btn-sm">既存の報告書を開く</a>
+          <span class="hint">→ 同じ「作成」ボタンをもう一度押すと上書きして新しく作成します。</span>
+        </p>
+      </div>
+    </section>
+
+    <section id="list-section" class="section list-section">
+      <h2>報告書一覧（店舗内共有）</h2>
+      <p class="hint">生成済みの報告書です。クリックで内容の確認・修正・カイポケ転記ができます。</p>
+      <div class="list-toolbar">
+        <label for="report-sort">並び替え：</label>
+        <select id="report-sort" class="report-sort" aria-label="一覧の並び順">
+          <option value="created-desc">作成日（新しい順）</option>
+          <option value="created-asc">作成日（古い順）</option>
+          <option value="updated-desc">更新日（新しい順）</option>
+          <option value="updated-asc">更新日（古い順）</option>
+          <option value="name-asc">利用者名（あいうえお順）</option>
+          <option value="name-desc">利用者名（あいうえお逆順）</option>
+          <option value="month-desc">対象月（新しい順）</option>
+          <option value="month-asc">対象月（古い順）</option>
+        </select>
+      </div>
+      <p class="save-info">
+        💾 <strong>保存先：</strong>
+        <code>報告書自動作成/backend/data/reports/</code>（JSONファイル）<br>
+        このフォルダをネットワーク上の共有フォルダに置けば、スタッフ全員で参照できます。
+      </p>
+      <div id="report-list" class="report-list"></div>
+    </section>
+
+    <section id="detail-section" class="section detail-section" hidden>
+      <h2>④ 内容の確認・修正 → ⑤ カイポケに転記</h2>
+      <div class="detail-actions">
+        <button type="button" id="back-list" class="btn btn-secondary">一覧に戻る</button>
+        <button type="button" id="copy-all" class="btn btn-primary">報告書全文をコピー（カイポケ転記用）</button>
+      </div>
+      <form id="edit-form" class="edit-form">
+        <input type="hidden" id="edit_id" />
+        <div class="form-row">
+          <label>利用者名</label>
+          <input type="text" id="edit_client_name" readonly class="readonly" />
+        </div>
+        <div class="form-row">
+          <label>対象月</label>
+          <input type="text" id="edit_target_month" readonly class="readonly" />
+        </div>
+        <div class="form-row">
+          <label>病状の経過</label>
+          <textarea id="edit_病状の経過" name="病状の経過" rows="5"></textarea>
+        </div>
+        <div class="form-row">
+          <label>看護リハビリテーションの内容</label>
+          <textarea id="edit_看護リハビリテーションの内容" name="看護リハビリテーションの内容" rows="5"></textarea>
+        </div>
+        <div class="form-row">
+          <label>家庭での介護の状況</label>
+          <textarea id="edit_家庭での介護の状況" name="家庭での介護の状況" rows="5"></textarea>
+        </div>
+        <div class="form-actions">
+          <button type="submit" class="btn btn-primary">修正を保存</button>
+        </div>
+      </form>
+      <div id="edit-status" class="status" aria-live="polite"></div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <p>生成した報告書は店舗内で共有されます。リハ看護が入っている場合も二度手間にならずにご利用いただけます。</p>
+  </footer>
+  <script src="/assets/app.js?v=8"></script>
+</body>
+</html>

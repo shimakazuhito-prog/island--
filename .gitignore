@@ -1,0 +1,29 @@
+# 環境
+.env
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+*.pyo
+.Python
+*.so
+
+# データ・アップロード（ローカル用）
+data/
+backend/data/
+backend/uploads/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# トンネル用バイナリ（各自で取得）
+ngrok
+ngrok-*
+*.zip
