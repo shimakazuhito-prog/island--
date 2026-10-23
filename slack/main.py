@@ -1,8 +1,9 @@
+import hmac
 import os
 
 import httpx
 from dotenv import load_dotenv
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
 load_dotenv()
@@ -13,6 +14,26 @@ SLACK_CLIENT_ID = os.getenv("SLACK_CLIENT_ID")
 SLACK_CLIENT_SECRET = os.getenv("SLACK_CLIENT_SECRET")
 SLACK_USER_TOKEN = os.getenv("SLACK_USER_TOKEN")
 SLACK_REDIRECT_URI = os.getenv("SLACK_REDIRECT_URI")
+SLACK_API_TOKEN = os.getenv("SLACK_API_TOKEN", "")
+
+@app.middleware("http")
+async def require_api_auth(request: Request, call_next):
+    # Health checks expose no workspace data; Slack events verify their own signature.
+    if request.url.path in {"/"}:
+        return await call_next(request)
+    # An unset credential must never turn authentication off.
+    if not SLACK_API_TOKEN.strip():
+        return JSONResponse({"error": "API access is disabled"}, status_code=503)
+    authorization = request.headers.get("Authorization", "")
+    scheme, _, token = authorization.partition(" ")
+    if scheme.lower() != "bearer" or not token or not hmac.compare_digest(
+        token.encode("utf-8"), SLACK_API_TOKEN.encode("utf-8")
+    ):
+        return JSONResponse(
+            {"error": "unauthorized"}, status_code=401,
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return await call_next(request)
 
 USER_SCOPES = "channels:history,channels:read,groups:history,groups:read,search:read"
 SLACK_API = "https://slack.com/api"
@@ -24,7 +45,7 @@ def _auth_header():
 
 @app.get("/")
 def root():
-    return {"status": "ok", "user_token_configured": bool(SLACK_USER_TOKEN)}
+    return {"status": "ok"}
 
 
 @app.get("/slack/install")
